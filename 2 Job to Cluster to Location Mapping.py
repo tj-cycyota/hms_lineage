@@ -104,23 +104,67 @@ ADLS_write_logs = "write_logs"
 
 # COMMAND ----------
 
-# Validate that table paths are as expected for each table type
-# NOTE: in testing, not all possible table types/storage patterns were accounted for, so regex adjustment may be needed
+# DBTITLE 1,Functions to parse complex path URLs
+def parse_storage_account(uri):
+  from urllib.parse import urlparse
+  res = urlparse(uri)
+
+  # Parse storage_account from netloc and path
+  storage_account = res.netloc.split(".")[0]
+  return storage_account
+
+def parse_storage_container(uri):
+  from urllib.parse import urlparse
+  res = urlparse(uri)
+  
+  # Parse storage_account and storage_container from netloc and path
+  storage_container = res.path.split("/")[1]
+  return storage_container
+
+def parse_table_path(uri):
+  from urllib.parse import urlparse
+  res = urlparse(uri)
+  
+  # Cover occurrences of URL encoding and file types in ADLS
+  # Patterns to get table path. 
+  path_seps = ["_delta_log", "part-", ".json", ".csv", "_committed", ".crc", ".parquet"]
+  mid_path_seps = ["%3D", "="]
+  raw_path_parts = res.path.split("/")
+
+  # Partitioned tables
+  for sep in mid_path_seps:
+    for idx, part in enumerate(raw_path_parts):
+      if sep in part:
+        # print(sep, " found in ", part)
+        table_path = "/".join(raw_path_parts[2:idx])
+        return table_path
+
+  # Non-Partitioned tables. Order of priority matters (e.g. Delta has _delta_log in path before part- for Parquet files)
+  for sep in path_seps:
+    for idx, part in enumerate(raw_path_parts):
+      if sep in part:
+        # print(sep, " found in ", part)
+        table_path = "/".join(raw_path_parts[2:idx])
+        return table_path
+
+spark.udf.register("parse_storage_account", parse_storage_account)
+spark.udf.register("parse_storage_container", parse_storage_container)
+spark.udf.register("parse_table_path", parse_table_path)
+
+# COMMAND ----------
+
+# DBTITLE 1,Testing on subset
 display(
   spark.sql(f"""
 SELECT 
   cast(time as timestamp) as time,
   category,
   operationName,
-  -- regexp_extract(properties.clientRequestId, "(\d{4}-\d{6}-[a-z0-9]+)") as clusterId,
   split_part(properties.clientRequestId, "--", 1) as clusterId,
-  uri,
-  regexp_extract(uri, "https://(.*?)\\.dfs") as storage_account,
-  -- regexp_extract(uri, "\.net/([\w-]+)[/?&]") as storage_container,
-  regexp_extract(uri, "https?://[^/]+/([^/?&]*)") as storage_container,
-  regexp_extract(uri, "https?://[^/]+/[^/]+/([^/?&]+(?:/[^/?&]+)*)") as file_key_raw,
-  regexp_extract(regexp_extract(uri, "https?://[^/]+/[^/]+/([^/?&]+(?:/[^/?&]+)*)"), "(.*?)(?=/[^/]*(?:_delta_log|\\.[^.]+$))") as table_path,
-  properties.objectKey
+  uri, 
+  parse_storage_account(uri) as storage_account,
+  parse_storage_container(uri) as storage_container,
+  parse_table_path(uri) as table_path
 
 FROM {ADLS_Logs_schema}.{ADLS_read_logs}
 WHERE LOWER(properties.userAgentHeader) LIKE "%databricks%"
@@ -129,6 +173,35 @@ AND operationName IN ("ReadFile")
 LIMIT 100
             """)
 )
+
+# COMMAND ----------
+
+# DBTITLE 1,Regex-based approach - more error prone
+# # Validate that table paths are as expected for each table type
+# # NOTE: in testing, not all possible table types/storage patterns were accounted for, so regex adjustment may be needed
+# display(
+#   spark.sql(f"""
+# SELECT 
+#   cast(time as timestamp) as time,
+#   category,
+#   operationName,
+#   -- regexp_extract(properties.clientRequestId, "(\d{4}-\d{6}-[a-z0-9]+)") as clusterId,
+#   split_part(properties.clientRequestId, "--", 1) as clusterId,
+#   uri,
+#   regexp_extract(uri, "https://(.*?)\\.dfs") as storage_account,
+#   -- regexp_extract(uri, "\.net/([\w-]+)[/?&]") as storage_container,
+#   regexp_extract(uri, "https?://[^/]+/([^/?&]*)") as storage_container,
+#   regexp_extract(uri, "https?://[^/]+/[^/]+/([^/?&]+(?:/[^/?&]+)*)") as file_key_raw,
+#   regexp_extract(regexp_extract(uri, "https?://[^/]+/[^/]+/([^/?&]+(?:/[^/?&]+)*)"), "(.*?)(?=/[^/]*(?:_delta_log|\\.[^.]+$))") as table_path,
+#   properties.objectKey
+
+# FROM {ADLS_Logs_schema}.{ADLS_read_logs}
+# WHERE LOWER(properties.userAgentHeader) LIKE "%databricks%"
+# AND regexp_extract(properties.clientRequestId, "(\\d{4}-\\d{6}-[a-z0-9]+)") IS NOT NULL
+# AND operationName IN ("ReadFile")
+# LIMIT 100
+#             """)
+# )
 
 # COMMAND ----------
 
@@ -164,26 +237,23 @@ combined_logs AS (
 
 parsed_logs AS (
   SELECT 
-  cast(time as timestamp) as time,
+    cast(time as timestamp) as time,
     category,
     operationName,
-    -- regexp_extract(properties.clientRequestId, "(\d{4}-\d{6}-[a-z0-9]+)") as clusterId,
     split_part(properties.clientRequestId, "--", 1) as clusterId,
-    uri,
-    regexp_extract(uri, "https://(.*?)\\.dfs") as storage_account,
-    -- regexp_extract(uri, "\.net/([\w-]+)[/?&]") as storage_container,
-    regexp_extract(uri, "https?://[^/]+/([^/?&]*)") as storage_container,
-    regexp_extract(uri, "https?://[^/]+/[^/]+/([^/?&]+(?:/[^/?&]+)*)") as file_key_raw,
-    regexp_extract(regexp_extract(uri, "https?://[^/]+/[^/]+/([^/?&]+(?:/[^/?&]+)*)"), "(.*?)(?=/[^/]*(?:_delta_log|\\.[^.]+$))") as table_path,
-    properties.objectKey
-  FROM combined_logs
+    uri, 
+    parse_storage_account(uri) as storage_account,
+    parse_storage_container(uri) as storage_container,
+    parse_table_path(uri) as table_path
+
+  FROM {ADLS_Logs_schema}.{ADLS_read_logs}
   WHERE LOWER(properties.userAgentHeader) LIKE "%databricks%"
   AND regexp_extract(properties.clientRequestId, "(\\d{4}-\\d{6}-[a-z0-9]+)") IS NOT NULL
-  -- AND uri LIKE "%chewy%"
 )
 
 SELECT * FROM parsed_logs
 WHERE operationName IN ("AppendFile", "ReadFile")
+AND parse_table_path(uri) IS NOT NULL
             """)
 )
 
