@@ -18,4 +18,4 @@ In upgrading to Unity Catalog, it is important to identify the dependencies betw
 For each job run (e.g. an instance of a job occurrence), a new ephemeral job cluster gets created to run the job’s tasks. As this cluster accesses cloud storage, [ADLS StorageBlobLogs](https://learn.microsoft.com/en-us/azure/storage/blobs/monitor-blob-storage?tabs=azure-portal#sample-kusto-queries) detail the cluster that used some credential (e.g. Service Principal) to access a table at a specific storage path
 
 By creating a mapping of: job run → job cluster id → storage access event → storage path → external HMS table entry, we can determine the specific tables associated with each job:
-![mapping logic](databricks.com)
+![mapping logic](https://github.com/tj-cycyota/hms_lineage/blob/master/_resources/hms_lineage_mapping.png?raw=true)
