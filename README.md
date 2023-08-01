@@ -12,4 +12,10 @@ To successfully follow the notebooks in this repo, the following must be true:
 * You have run the [External Metastore Inventory](https://github.com/himanshuguptadb/Unity_Catalog/tree/master/External%20Metastore%20Inventory) script to "dump" HMS information to a queryable Delta table.
 * You have run the script (provided by your Databricks representative or manually constructed) to a create a queryable Delta table with all Jobs Run information available on the `jobs/runs/list` API.
 
-* 
+## Details
+In upgrading to Unity Catalog, it is important to identify the dependencies between automated jobs, and the data tables they read from and write to. Instead of asking each developer or job owner to determine inputs/outputs of each production job, in Azure it is usually possible to determine this by mapping ADLS logs to cluster IDs. 
+
+For each job run (e.g. an instance of a job occurrence), a new ephemeral job cluster gets created to run the job’s tasks. As this cluster accesses cloud storage, [ADLS StorageBlobLogs](https://learn.microsoft.com/en-us/azure/storage/blobs/monitor-blob-storage?tabs=azure-portal#sample-kusto-queries) detail the cluster that used some credential (e.g. Service Principal) to access a table at a specific storage path
+
+By creating a mapping of: job run → job cluster id → storage access event → storage path → external HMS table entry, we can determine the specific tables associated with each job:
+![mapping logic](databricks.com)
