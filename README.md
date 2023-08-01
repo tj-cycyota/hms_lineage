@@ -19,3 +19,13 @@ For each job run (e.g. an instance of a job occurrence), a new ephemeral job clu
 
 By creating a mapping of: job run → job cluster id → storage access event → storage path → external HMS table entry, we can determine the specific tables associated with each job:
 ![mapping logic](./_resources/hms_lineage_mapping.png)
+
+## Instructions
+
+Assuming all pre-requisites are satisfied, you are ready to proceed with the following notebooks in this repo:
+
+`1 ADLS Log Dump to Delta Table`: this script creates a queryable Delta table with ADLS access logs. 
+
+`2 Job to Cluster to Location Mapping`: this script includes logic to perform joins between ADLS access Logs (step 1), HMS table definitions (pre-req), and job run instances (pre-req). 
+
+Once completed successfully, the result is a table that maps Job Ids to the Tables from which is Reads and Writes. This mapping should be used in upgrading to Unity Catalog in order to sequence upgrade of data applications. 
